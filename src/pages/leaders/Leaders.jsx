@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
-import { BARRIOS_POR_COMUNA } from '../../lib/valledupar-data';
+import { BARRIOS_POR_COMUNA, COMUNAS } from '../../lib/valledupar-data';
 import { AddressBuilder } from '../../components/AddressBuilder';
 import {
-  Plus, MapPin, TrendingUp, Phone, Briefcase, User, Calendar, AlertCircle
+  Plus, MapPin, TrendingUp, Phone, Briefcase, User, Calendar,
+  Search, Filter, Pencil, Trash2, Mail
 } from 'lucide-react';
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
@@ -18,29 +19,30 @@ import {
 
 export default function Leaders() {
   const [leaders, setLeaders] = useState([]);
+  const [filteredLeaders, setFilteredLeaders] = useState([]); // Lista filtrada
   const [zones, setZones] = useState([]);
   const [loading, setLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  // Lista plana de todos los barrios para el buscador/dropdown
+  // Estados de Filtro
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterComuna, setFilterComuna] = useState('Todas');
+
+  // Lista plana de barrios
   const [allBarrios, setAllBarrios] = useState([]);
 
-  const [formData, setFormData] = useState({
-    cedula: '',
-    nombre: '',
-    telefono: '',
-    email: '',
-    direccion: '',
-    zoneId: '', // Se llenará automáticamente si existe zona para el barrio
-    barrio: '',
-    comuna_display: '', // Solo visual
-    fecha_nacimiento: '',
-    oficio: '',
-    profesion: '',
-    meta_votos: ''
-  });
+  // Estado Formulario (Modo Edición)
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
-  // Cargar Datos y Preparar Barrios
+  const initialFormState = {
+    cedula: '', nombre: '', telefono: '', email: '', direccion: '',
+    zoneId: '', barrio: '', comuna_display: '', fecha_nacimiento: '',
+    oficio: '', profesion: '', meta_votos: ''
+  };
+  const [formData, setFormData] = useState(initialFormState);
+
+  // 1. Cargar Datos
   const fetchData = async () => {
     try {
       const [leadersRes, zonesRes] = await Promise.all([
@@ -48,46 +50,58 @@ export default function Leaders() {
         api.get('/zones')
       ]);
       setLeaders(leadersRes.data);
+      setFilteredLeaders(leadersRes.data); // Inicialmente todos
       setZones(zonesRes.data);
 
-      // Aplanar barrios para el dropdown único
+      // Preparar lista de barrios
       const listaBarrios = [];
       Object.entries(BARRIOS_POR_COMUNA).forEach(([comuna, barrios]) => {
-        barrios.forEach(barrio => {
-          listaBarrios.push({ nombre: barrio, comuna });
-        });
+        barrios.forEach(barrio => listaBarrios.push({ nombre: barrio, comuna }));
       });
-      // Ordenar alfabéticamente
       setAllBarrios(listaBarrios.sort((a, b) => a.nombre.localeCompare(b.nombre)));
 
     } catch (error) {
-      console.error("Error cargando datos:", error);
+      console.error("Error:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, []);
+  useEffect(() => { fetchData(); }, []);
 
-  // --- LÓGICA INTELIGENTE DE SELECCIÓN ---
+  // 2. Lógica de Filtrado (Buscador + Comuna)
+  useEffect(() => {
+    let result = leaders;
+
+    // Filtro Texto (Nombre o Cédula)
+    if (searchTerm) {
+      const lowerTerm = searchTerm.toLowerCase();
+      result = result.filter(l =>
+        l.nombre.toLowerCase().includes(lowerTerm) ||
+        l.cedula.includes(lowerTerm)
+      );
+    }
+
+    // Filtro Comuna
+    if (filterComuna !== 'Todas') {
+      result = result.filter(l => l.numero_comuna === filterComuna);
+    }
+
+    setFilteredLeaders(result);
+  }, [searchTerm, filterComuna, leaders]);
+
+
+  // 3. Manejadores del Formulario
   const handleBarrioChange = (barrioSeleccionado) => {
-    // 1. Buscar a qué comuna pertenece
     const infoBarrio = allBarrios.find(b => b.nombre === barrioSeleccionado);
     const comuna = infoBarrio ? infoBarrio.comuna : '';
-
-    // 2. Buscar si existe una Zona creada para este barrio específico
-    // (Asumiendo que en Zones.jsx el 'nombre' de la zona es el barrio)
-    const zonaCorrespondiente = zones.find(z =>
-      z.nombre === barrioSeleccionado && z.numero_comuna === comuna
-    );
+    const zonaCorrespondiente = zones.find(z => z.nombre === barrioSeleccionado && z.numero_comuna === comuna);
 
     setFormData(prev => ({
       ...prev,
       barrio: barrioSeleccionado,
-      comuna_display: comuna, // Se muestra automáticamente
-      zoneId: zonaCorrespondiente ? zonaCorrespondiente.id : '' // Se vincula si existe
+      comuna_display: comuna,
+      zoneId: zonaCorrespondiente ? zonaCorrespondiente.id : ''
     }));
   };
 
@@ -98,23 +112,50 @@ export default function Leaders() {
     setFormData(prev => ({ ...prev, [field]: cleanValue }));
   };
 
+  // 4. CRUD Actions
+  const handleEdit = (leader) => {
+    setIsEditing(true);
+    setEditingId(leader.id);
+    setFormData({
+      cedula: leader.cedula,
+      nombre: leader.nombre,
+      telefono: leader.telefono || '',
+      email: leader.email || '',
+      direccion: leader.direccion || '',
+      zoneId: leader.zoneId || '',
+      barrio: leader.barrio || '',
+      comuna_display: leader.numero_comuna || '', // Visual
+      fecha_nacimiento: leader.fecha_nacimiento || '',
+      oficio: leader.oficio || '',
+      profesion: leader.profesion || '',
+      meta_votos: leader.meta_votos
+    });
+    setIsDialogOpen(true);
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("¿Estás seguro de eliminar este líder? Sus electores quedarán huérfanos.")) return;
+    try {
+      await api.delete(`/leaders/${id}`);
+      fetchData();
+    } catch (error) {
+      alert("Error al eliminar: " + (error.response?.data?.message || "Error desconocido"));
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    // Validación extra: No permitir guardar si el barrio no tiene zona activa
-    if (!formData.zoneId) {
-      alert(`El barrio "${formData.barrio}" no ha sido habilitado como Zona en el sistema. Por favor vaya a "Zonas" y créela primero.`);
-      return;
-    }
-
     try {
-      await api.post('/leaders', formData);
+      if (isEditing) {
+        await api.put(`/leaders/${editingId}`, formData);
+      } else {
+        await api.post('/leaders', formData);
+      }
 
-      setFormData({
-        cedula: '', nombre: '', telefono: '', email: '', direccion: '',
-        zoneId: '', barrio: '', comuna_display: '', fecha_nacimiento: '', oficio: '',
-        profesion: '', meta_votos: ''
-      });
+      // Reset y cerrar
+      setFormData(initialFormState);
+      setIsEditing(false);
+      setEditingId(null);
       setIsDialogOpen(false);
       fetchData();
     } catch (error) {
@@ -122,161 +163,79 @@ export default function Leaders() {
     }
   };
 
-  const getEffectivenessColor = (percentageString) => {
-    const value = parseFloat(percentageString);
-    if (value >= 80) return "text-green-600";
-    if (value >= 40) return "text-yellow-600";
+  // Abrir modal limpio para crear
+  const openCreateModal = () => {
+    setIsEditing(false);
+    setFormData(initialFormState);
+    setIsDialogOpen(true);
+  };
+
+  const getEffectivenessColor = (pct) => {
+    const val = parseFloat(pct);
+    if (val >= 80) return "text-green-600";
+    if (val >= 40) return "text-yellow-600";
     return "text-red-500";
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100">Red Política</h2>
-          <p className="text-slate-500 dark:text-slate-400">Directorio de Líderes y Auditoría de Metas.</p>
+          <p className="text-slate-500 dark:text-slate-400">Gestión de líderes y metas.</p>
         </div>
 
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button className="bg-blue-600 hover:bg-blue-700 text-white">
-              <Plus className="mr-2 h-4 w-4" /> Nuevo Líder
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Registro de Líder</DialogTitle>
-            </DialogHeader>
-
-            <form onSubmit={handleSubmit} className="space-y-4 mt-4">
-
-              {/* SECCIÓN 1: IDENTIFICACIÓN */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-800">
-                <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 flex items-center">
-                  <User className="h-3 w-3 mr-1"/> Identificación
-                </h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <Label>Cédula</Label>
-                    <Input required placeholder="12345678" value={formData.cedula} onChange={e => handleInputChange('cedula', e.target.value)} />
-                  </div>
-                  <div>
-                    <Label>Nombres y Apellidos</Label>
-                    <Input required placeholder="NOMBRE COMPLETO" value={formData.nombre} onChange={e => handleInputChange('nombre', e.target.value)} />
-                  </div>
-                </div>
-              </div>
-
-              {/* SECCIÓN 2: UBICACIÓN (LÓGICA INVERTIDA) */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-800">
-                <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 flex items-center">
-                  <MapPin className="h-3 w-3 mr-1"/> Ubicación Estratégica
-                </h4>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  {/* 1. SELECCIONAR BARRIO PRIMERO */}
-                  <div>
-                    <Label className="text-blue-600 font-semibold">Barrio (Zona de Influencia)</Label>
-                    <select
-                      className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:bg-slate-950 dark:border-slate-800"
-                      value={formData.barrio}
-                      onChange={e => handleBarrioChange(e.target.value)}
-                      required
-                    >
-                      <option value="">Buscar Barrio...</option>
-                      {allBarrios.map((b, idx) => (
-                        <option key={`${b.nombre}-${idx}`} value={b.nombre}>
-                          {b.nombre}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {/* 2. COMUNA AUTOMÁTICA (READ ONLY) */}
-                  <div>
-                    <Label>Comuna (Automática)</Label>
-                    <Input
-                      value={formData.comuna_display ? `Comuna ${formData.comuna_display}` : ''}
-                      disabled
-                      className="bg-slate-100 dark:bg-slate-800 font-medium"
-                      placeholder="Se asigna según barrio"
-                    />
-                  </div>
-                </div>
-
-                {/* AVISO SI LA ZONA NO EXISTE */}
-                {formData.barrio && !formData.zoneId && (
-                  <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-md flex items-start gap-2 text-yellow-800 text-sm">
-                    <AlertCircle className="h-5 w-5 flex-shrink-0" />
-                    <div>
-                      <strong>Zona no habilitada:</strong> El barrio "{formData.barrio}" no ha sido creado como Zona en el sistema.
-                      No podrás guardar este líder hasta crear la zona correspondiente.
-                    </div>
-                  </div>
-                )}
-
-                <AddressBuilder onChange={(val) => handleInputChange('direccion', val)} />
-              </div>
-
-              {/* SECCIÓN 3: PERFIL */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div>
-                  <Label>Celular</Label>
-                  <Input placeholder="300..." maxLength={10} value={formData.telefono} onChange={e => handleInputChange('telefono', e.target.value)} />
-                </div>
-                <div className="md:col-span-2">
-                  <Label>Email</Label>
-                  <Input type="email" value={formData.email} onChange={e => handleInputChange('email', e.target.value)} />
-                </div>
-                <div>
-                  <Label>Cumpleaños</Label>
-                  <Input type="date" value={formData.fecha_nacimiento} onChange={e => handleInputChange('fecha_nacimiento', e.target.value)} />
-                </div>
-                <div>
-                  <Label>Oficio</Label>
-                  <Input value={formData.oficio} onChange={e => handleInputChange('oficio', e.target.value)} />
-                </div>
-                <div>
-                  <Label>Profesión</Label>
-                  <Input value={formData.profesion} onChange={e => handleInputChange('profesion', e.target.value)} />
-                </div>
-              </div>
-
-              {/* META */}
-              <div>
-                <Label className="text-blue-600 font-bold">Meta de Votos</Label>
-                <Input type="number" required className="text-lg font-bold" value={formData.meta_votos} onChange={e => handleInputChange('meta_votos', e.target.value)} />
-              </div>
-
-              <Button type="submit" className="w-full bg-blue-600 h-11" disabled={!formData.zoneId}>
-                {formData.zoneId ? 'Registrar Líder' : 'Zona no válida'}
-              </Button>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={openCreateModal} className="bg-blue-600 hover:bg-blue-700 text-white">
+          <Plus className="mr-2 h-4 w-4" /> Nuevo Líder
+        </Button>
       </div>
 
-      {/* TABLA (Sin cambios mayores) */}
+      {/* BARRA DE FILTROS */}
+      <div className="flex flex-col md:flex-row gap-4 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Buscar líder por nombre o cédula..."
+            className="pl-10"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-2 min-w-[200px]">
+          <Filter className="h-4 w-4 text-slate-500" />
+          <select
+            className="h-10 w-full rounded-md border border-slate-200 bg-white px-3 text-sm dark:bg-slate-950 dark:border-slate-800 focus:ring-2 focus:ring-blue-500"
+            value={filterComuna}
+            onChange={e => setFilterComuna(e.target.value)}
+          >
+            <option value="Todas">Todas las Comunas</option>
+            {COMUNAS.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {/* TABLA */}
       <div className="bg-white dark:bg-slate-950 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 overflow-hidden">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Líder</TableHead>
+              <TableHead>Líder / Contacto</TableHead>
               <TableHead>Ubicación</TableHead>
               <TableHead>Perfil</TableHead>
               <TableHead className="text-center">Meta</TableHead>
               <TableHead className="text-center">Real</TableHead>
-              <TableHead className="text-right">Efectividad</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {loading ? (
               <TableRow><TableCell colSpan={6} className="text-center py-8">Cargando...</TableCell></TableRow>
-            ) : leaders.length === 0 ? (
-              <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-500">No hay registros.</TableCell></TableRow>
+            ) : filteredLeaders.length === 0 ? (
+              <TableRow><TableCell colSpan={6} className="text-center py-8 text-slate-500">No se encontraron resultados.</TableCell></TableRow>
             ) : (
-              leaders.map((leader) => (
+              filteredLeaders.map((leader) => (
                 <TableRow key={leader.id}>
+                  {/* COLUMNA 1: IDENTIFICACIÓN */}
                   <TableCell>
                     <div className="font-bold text-slate-900 dark:text-slate-100">{leader.nombre}</div>
                     <div className="text-xs text-slate-500">CC: {leader.cedula}</div>
@@ -284,33 +243,56 @@ export default function Leaders() {
                       <Phone className="h-3 w-3 mr-1" /> {leader.telefono || '--'}
                     </div>
                   </TableCell>
+
+                  {/* COLUMNA 2: UBICACIÓN */}
                   <TableCell>
                     <div className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                      {leader.numero_comuna ? `Comuna ${leader.numero_comuna}` : 'Zona sin definir'}
+                      {leader.numero_comuna ? `Comuna ${leader.numero_comuna}` : 'SC'}
                     </div>
                     <div className="text-xs font-medium text-slate-600 dark:text-slate-400 mt-0.5">
-                      {leader.zona_nombre || leader.barrio}
+                      {leader.barrio || leader.zona_nombre}
                     </div>
-                    <div className="flex items-center text-xs text-slate-500 mt-1 truncate max-w-[180px]" title={leader.direccion}>
+                    <div className="flex items-center text-xs text-slate-500 mt-1 truncate max-w-[150px]" title={leader.direccion}>
                       <MapPin className="h-3 w-3 mr-1 flex-shrink-0" />
                       {leader.direccion || 'Sin dirección'}
                     </div>
                   </TableCell>
+
+                  {/* COLUMNA 3: PERFIL (Ajustado como pediste) */}
                   <TableCell>
-                    <div className="flex items-center text-xs text-slate-600 dark:text-slate-400">
-                      <Briefcase className="h-3 w-3 mr-1" /> {leader.profesion || leader.oficio || '--'}
+                    <div className="flex items-center text-sm font-medium text-slate-700 dark:text-slate-300">
+                      <Briefcase className="h-3.5 w-3.5 mr-1.5 text-blue-500" />
+                      {leader.profesion || leader.oficio || 'Sin Profesión'}
+                    </div>
+                    <div className="flex items-center text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      <Calendar className="h-3.5 w-3.5 mr-1.5 text-orange-500" />
+                      {leader.fecha_nacimiento ? new Date(leader.fecha_nacimiento).toLocaleDateString() : 'Sin fecha'}
                     </div>
                   </TableCell>
+
+                  {/* COLUMNAS MÉTRICAS */}
                   <TableCell className="text-center">
-                    <Badge variant="outline">{leader.meta_votos}</Badge>
+                    <Badge variant="outline" className="bg-slate-50 dark:bg-slate-900">
+                      {leader.meta_votos}
+                    </Badge>
                   </TableCell>
-                  <TableCell className="text-center font-bold">
+                  <TableCell className="text-center font-bold text-lg text-slate-700 dark:text-slate-200">
                     {leader.votos_reales}
                   </TableCell>
+
+                  {/* COLUMNA ACCIONES (CRUD) */}
                   <TableCell className="text-right">
-                    <span className={`font-bold ${getEffectivenessColor(leader.efectividad_porcentaje)}`}>
-                      {leader.efectividad_porcentaje}
-                    </span>
+                    <div className="flex items-center justify-end gap-1">
+                      <span className={`text-xs font-bold mr-3 ${getEffectivenessColor(leader.efectividad_porcentaje)}`}>
+                        {leader.efectividad_porcentaje}
+                      </span>
+                      <Button variant="ghost" size="icon" onClick={() => handleEdit(leader)} className="h-8 w-8 text-blue-600 hover:bg-blue-50">
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button variant="ghost" size="icon" onClick={() => handleDelete(leader.id)} className="h-8 w-8 text-red-500 hover:bg-red-50">
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -318,6 +300,54 @@ export default function Leaders() {
           </TableBody>
         </Table>
       </div>
+
+      {/* MODAL (Reutilizable Crear/Editar) */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{isEditing ? 'Editar Líder' : 'Registrar Nuevo Líder'}</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleSubmit} className="space-y-4 mt-4">
+            {/* ... (Mismo formulario que tenías antes) ... */}
+            {/* Solo asegúrate de copiar el contenido del form del paso anterior aquí */}
+            <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-800">
+                <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 flex items-center"><User className="h-3 w-3 mr-1"/> Identificación</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div><Label>Cédula</Label><Input required value={formData.cedula} onChange={e => handleInputChange('cedula', e.target.value)} disabled={isEditing} /></div>
+                  <div><Label>Nombres</Label><Input required value={formData.nombre} onChange={e => handleInputChange('nombre', e.target.value)} /></div>
+                </div>
+            </div>
+
+            <div className="p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-800">
+                <h4 className="text-xs font-bold text-slate-500 uppercase mb-3 flex items-center"><MapPin className="h-3 w-3 mr-1"/> Ubicación</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                  <div>
+                    <Label>Barrio</Label>
+                    <select className="flex h-10 w-full rounded-md border border-slate-200 bg-white px-3 dark:bg-slate-950 dark:border-slate-800"
+                      value={formData.barrio} onChange={e => handleBarrioChange(e.target.value)} required>
+                      <option value="">Buscar Barrio...</option>
+                      {allBarrios.map((b, idx) => <option key={`${b.nombre}-${idx}`} value={b.nombre}>{b.nombre}</option>)}
+                    </select>
+                  </div>
+                  <div><Label>Comuna</Label><Input value={formData.comuna_display} disabled className="bg-slate-100"/></div>
+                </div>
+                <AddressBuilder onChange={(val) => handleInputChange('direccion', val)} />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+               <div><Label>Celular</Label><Input value={formData.telefono} onChange={e => handleInputChange('telefono', e.target.value)} /></div>
+               <div className="md:col-span-2"><Label>Email</Label><Input value={formData.email} onChange={e => handleInputChange('email', e.target.value)} /></div>
+               <div><Label>Cumpleaños</Label><Input type="date" value={formData.fecha_nacimiento} onChange={e => handleInputChange('fecha_nacimiento', e.target.value)} /></div>
+               <div><Label>Oficio</Label><Input value={formData.oficio} onChange={e => handleInputChange('oficio', e.target.value)} /></div>
+               <div><Label>Profesión</Label><Input value={formData.profesion} onChange={e => handleInputChange('profesion', e.target.value)} /></div>
+            </div>
+
+            <div><Label className="text-blue-600 font-bold">Meta de Votos</Label><Input type="number" required className="text-lg font-bold" value={formData.meta_votos} onChange={e => handleInputChange('meta_votos', e.target.value)} /></div>
+
+            <Button type="submit" className="w-full bg-blue-600 h-11">{isEditing ? 'Guardar Cambios' : 'Registrar Líder'}</Button>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
