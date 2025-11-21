@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Search } from 'lucide-react';
+import { Search, Trash2} from 'lucide-react';
 
 export default function Zones() {
   const [allZones, setAllZones] = useState([]); // Todas las zonas cargadas
@@ -84,6 +84,19 @@ export default function Zones() {
       fetchData(); // Recargar
     } catch (error) {
       alert("Error al actualizar zona");
+    }
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm("¿Estás seguro de eliminar esta zona? Se perderá la asociación con sus líderes.")) {
+      return;
+    }
+    try {
+      await api.delete(`/zones/${id}`);
+      fetchData(); // Recargar la tabla
+    } catch (error) {
+      console.error(error);
+      alert("Error al eliminar la zona.");
     }
   };
 
@@ -177,16 +190,25 @@ export default function Zones() {
                     {zone.avance_porcentaje}
                   </span>
                 </TableCell>
-                <TableCell className="text-right">
+                <TableCell className="text-right space-x-1">
+                  {/* Botón Gestionar */}
                   <Button
                     variant="ghost" size="sm"
                     onClick={() => openManageModal(zone)}
                     className="hover:bg-slate-100 dark:hover:bg-slate-900 text-blue-600"
+                    title="Gestionar Gerente"
                   >
-                    {/** Asignar gerente */}
-                    {/* <span>Asinar gerente</span> */}
                     <UserCog className="h-4 w-4" />
+                  </Button>
 
+                  {/* Botón Eliminar */}
+                  <Button
+                    variant="ghost" size="sm"
+                    onClick={() => handleDelete(zone.id)}
+                    className="hover:bg-red-50 dark:hover:bg-red-900/20 text-red-500"
+                    title="Eliminar Zona"
+                  >
+                    <Trash2 className="h-4 w-4" />
                   </Button>
                 </TableCell>
               </TableRow>
