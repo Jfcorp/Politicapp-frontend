@@ -9,12 +9,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Search } from 'lucide-react';
 
 export default function Zones() {
   const [allZones, setAllZones] = useState([]); // Todas las zonas cargadas
   const [filteredZones, setFilteredZones] = useState([]); // Zonas visibles
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('')
 
   // Filtros
   const [filterComuna, setFilterComuna] = useState('Todas');
@@ -46,12 +48,20 @@ export default function Zones() {
 
   // Filtrado local
   useEffect(() => {
-    if (filterComuna === 'Todas') {
-      setFilteredZones(allZones);
-    } else {
-      setFilteredZones(allZones.filter(z => z.numero_comuna === filterComuna));
+    let result = allZones
+    // Filtro por comuna
+    if (filterComuna !== 'Todas') {
+      result = result.filter(z => z.numero_comuna === filterComuna)
     }
-  }, [filterComuna, allZones]);
+
+    // 2. Filtro por Texto (Nombre del barrio)
+    if (searchTerm) {
+      result = result.filter(z =>
+        z.nombre.toLowerCase().includes(searchTerm.toLowerCase())
+      )
+    }
+    setFilteredZones(result)
+  }, [filterComuna, allZones, searchTerm]);
 
   // Abrir Modal
   const openManageModal = (zone) => {
@@ -96,6 +106,25 @@ export default function Zones() {
             <option value="Todas">Todas las Comunas</option>
             {[1,2,3,4,5,6].map(n => <option key={n} value={`${n}`}>Comuna {n}</option>)}
           </select>
+        </div>
+      </div>
+
+      {/* BUSCADOR Y FILTROS */}
+      <div className="flex gap-2">
+        {/* Buscador */}
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            placeholder="Buscar barrio..."
+            className="pl-8 h-9 w-[200px] bg-white dark:bg-slate-900"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        {/* Tu Select de Comuna existente */}
+        <div className="flex items-center gap-2 bg-white ...">
+          {/* ... */}
         </div>
       </div>
 
@@ -154,7 +183,10 @@ export default function Zones() {
                     onClick={() => openManageModal(zone)}
                     className="hover:bg-slate-100 dark:hover:bg-slate-900 text-blue-600"
                   >
+                    {/** Asignar gerente */}
+                    {/* <span>Asinar gerente</span> */}
                     <UserCog className="h-4 w-4" />
+
                   </Button>
                 </TableCell>
               </TableRow>
