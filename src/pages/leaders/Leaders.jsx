@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner"
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -145,21 +146,51 @@ export default function Leaders() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    try {
-      if (isEditing) {
-        await api.put(`/leaders/${editingId}`, formData);
-      } else {
-        await api.post('/leaders', formData);
-      }
 
-      // Reset y cerrar
-      setFormData(initialFormState);
-      setIsEditing(false);
-      setEditingId(null);
-      setIsDialogOpen(false);
-      fetchData();
+    // Validación Frontend previa
+    if (!formData.zoneId && !formData.barrio) {
+      toast.warning("Falta información de ubicación", {
+        description: "Debes seleccionar un barrio para continuar."
+      });
+      return;
+    }
+
+    try {
+      // Loading state visual (opcional)
+      const promise = api.post('/leaders', formData)
+
+      toast.promise(promise, {
+        loading: 'Registrando líder...',
+        success: (data) => {
+          // Resetear formulario solo si fue exitoso
+          setFormData({
+            cedula: '', nombre: '', telefono: '', email: '', direccion: '',
+            zoneId: '', barrio: '', comuna_display: '', fecha_nacimiento: '', oficio: '',
+            profesion: '', meta_votos: ''
+          });
+          setIsDialogOpen(false);
+          fetchData();
+          return `¡Líder ${data.data.nombre} registrado correctamente!`;
+        },
+        error: (error) => {
+          console.error("Error detallado:", error);
+
+          // Lógica mejorada para leer el error real del Backend
+          const serverMessage = error.response?.data?.message;
+          const serverError = error.response?.data?.error;
+          const validationErrors = error.response?.data?.errors; // Si es un array
+
+          let displayMessage = "Verifica los datos e intenta nuevamente.";
+
+          if (serverMessage) displayMessage = serverMessage;
+          else if (serverError) displayMessage = serverError;
+          else if (Array.isArray(validationErrors)) displayMessage = validationErrors.join(", ");
+
+          return `Error: ${displayMessage}`;
+        }
+      })
     } catch (error) {
-      alert("Error: " + (error.response?.data?.message || "Verifica los datos"));
+      console.error("Error catch:", error)
     }
   };
 
